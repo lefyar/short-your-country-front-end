@@ -1,306 +1,242 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { StatCard } from "@/components/portofolio/StatCard";
-import { walletCoins } from "@/lib/WalletConfig";
+import { useState } from "react";
+import { usePortfolioStats } from "@/hooks/usePortfolioStats";
+import { useMyPositions } from "@/hooks/useMyPositions";
+import { usePortfolioActions } from "@/hooks/usePortfolioActions";
 import { MantleSepoliaBalance } from "@/components/portofolio/MantleSepoliaBalance";
+import { usePublicClient } from "wagmi";
 
-type Holding = {
-  symbol: string;
-  name: string;
-  amount: number; // units held
-  price: number; // current price per unit (USD)
-  change24hPct: number; // percent change last 24h (e.g., 0.035 = +3.5%)
-};
+export default function PortfolioPage() {
+  const { walletBalance, protocolCollateral, refetchStats } =
+    usePortfolioStats();
+  const { positions, isLoading: loadingPositions } = useMyPositions();
+  const { deposit, withdraw, isApproving, isPending } = usePortfolioActions();
+  
+  const publicClient = usePublicClient();
 
-// Simple price source for symbols. Replace with live prices when available.
-const priceBook: Record<
-  string,
-  { price: number; change24hPct: number; name?: string }
-> = {
-  IDN: {
-    price: 3550,
-    change24hPct: 0.018,
-    name: "Indonesian Shyntetic Nation Index",
-  },
-  USA: {
-    price: 68000,
-    change24hPct: -0.006,
-    name: "US Shyntetic Nation Index",
-  },
-  JPN: { price: 185, change24hPct: 0.042, name: "JPN Shyntetic Nation Index" },
-};
+  const [amount, setAmount] = useState("");
+  
+  const [feedback, setFeedback] = useState<{
+    type: "success" | "error" | "loading";
+    message: string;
+    hash?: string; // Opsional: simpan hash buat link ke explorer
+  } | null>(null);
 
-function usd(n: number) {
-  return n.toLocaleString(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  });
-}
-
-export default function Portofolio() {
-  const [closedPositions, setClosedPositions] = useState<string[]>([]);
-  const [closeModal, setCloseModal] = useState<Holding | null>(null);
-  const [isClosing, setIsClosing] = useState(false);
-
-  // Load closed positions dari localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem("closedPositions");
-    if (stored) {
-      setClosedPositions(JSON.parse(stored));
+  const handleTransaction = async (actionType: "deposit" | "withdraw") => {
+    setFeedback(null);
+    
+    if (!amount || parseFloat(amount) <= 0) {
+      setFeedback({ type: "error", message: "Please enter a valid amount." });
+      return;
     }
-  }, []);
 
-  const allHoldings: Holding[] = walletCoins.map((c) => {
-    const p = priceBook[c.symbol];
-    return {
-      symbol: c.symbol,
-      name: c.name ?? p?.name ?? c.symbol,
-      amount: c.amount,
-      price: p?.price ?? 0,
-      change24hPct: p?.change24hPct ?? 0,
-    } as Holding;
-  });
+    try {
+      setFeedback({ 
+        type: "loading", 
+        message: "Please sign the transaction in your wallet..." 
+      });
 
-  // Filter closed positions
-  const holdings = allHoldings.filter(
-    (h) => !closedPositions.includes(h.symbol)
-  );
+      let txHash;
 
-  const totalValue = holdings.reduce((sum, h) => sum + h.amount * h.price, 0);
+      if (actionType === "deposit") {
+        txHash = await deposit(amount);
+      } else {
+        txHash = await withdraw(amount);
+      }
 
-  // Yesterday value approximated by reversing 24h change
-  const yesterdayValue = holdings.reduce(
-    (sum, h) => sum + (h.amount * h.price) / (1 + (h.change24hPct || 0)),
-    0
-  );
-  const pnl24h = totalValue - yesterdayValue;
-  const pnl24hPct = yesterdayValue === 0 ? 0 : pnl24h / yesterdayValue;
+      if (txHash) {
+        setFeedback({ 
+          type: "loading", 
+          message: "Transaction sent! Waiting for confirmation...",
+          hash: txHash
+        });
 
-  const best = [...holdings].sort((a, b) => b.change24hPct - a.change24hPct)[0];
+        if (publicClient) {
+            await publicClient.waitForTransactionReceipt({ 
+                hash: txHash 
+            });
+        }
 
-  const handleClosePosition = async () => {
-    if (!closeModal) return;
+        setFeedback({
+          type: "success",
+          message: `${actionType === 'deposit' ? 'Deposit' : 'Withdraw'} confirmed successfully!`,
+          hash: txHash
+        });
 
-    setIsClosing(true);
+        setAmount("");
+        refetchStats();
+      }
 
-    // Simulasi API delay
-    await new Promise((resolve) => setTimeout(resolve, 800));
-
-    // Ubah ke closed positions
-    const updated = [...closedPositions, closeModal.symbol];
-    setClosedPositions(updated);
-    localStorage.setItem("closedPositions", JSON.stringify(updated));
-
-    setIsClosing(false);
-    setCloseModal(null);
-  };
-
-  const handleReopenAll = () => {
-    setClosedPositions([]);
-    localStorage.removeItem("closedPositions");
+    } catch (err: any) {
+      console.error(err);
+      setFeedback({ 
+        type: "error", 
+        message: err.message || "Transaction failed or rejected." 
+      });
+    }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Mantle Sepolia native MNT balance widget */}
-      <MantleSepoliaBalance />
+    <div className="p-8 space-y-8 text-white bg-slate-900 min-h-screen">
+      <h1 className="text-3xl font-bold">Portfolio</h1>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard
-          label="Total Value"
-          value={usd(totalValue)}
-          subtitle="Current portfolio value"
-        />
-        <StatCard
-          label="24h PnL"
-          value={`${pnl24h >= 0 ? "+" : ""}${usd(pnl24h)} (${(
-            pnl24hPct * 100
-          ).toFixed(2)}%)`}
-          subtitle="Since 24h"
-          tone={pnl24h >= 0 ? "positive" : "negative"}
-        />
-        {best && (
-          <StatCard
-            label="Best Performer (24h)"
-            value={`${best.symbol} ${(best.change24hPct * 100).toFixed(2)}%`}
-            subtitle={best.name}
-            tone={best.change24hPct >= 0 ? "positive" : "negative"}
-          />
+      {/* --- SECTION 1: BALANCES --- */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="p-4 bg-slate-800 rounded-lg">
+          <h3 className="text-gray-400">Wallet Balance (USDT)</h3>
+          <p className="text-2xl font-mono">{walletBalance}</p>
+        </div>
+        <div className="p-4 bg-slate-800 rounded-lg border border-blue-500">
+          <h3 className="text-blue-400">Collateral in Protocol</h3>
+          <p className="text-2xl font-mono">{protocolCollateral}</p>
+        </div>
+      </div>
+
+      {/* --- SECTION 2: ACTIONS --- */}
+      <div className="p-6 bg-slate-800 rounded-lg space-y-4">
+        <h3 className="text-xl font-semibold">Manage Collateral</h3>
+
+        {/* FEEDBACK ALERT BOX */}
+        {feedback && (
+          <div
+            className={`p-4 rounded border flex items-center gap-3 ${
+              feedback.type === "success"
+                ? "bg-green-900/30 border-green-500 text-green-200"
+                : feedback.type === "error"
+                ? "bg-red-900/30 border-red-500 text-red-200"
+                : "bg-blue-900/30 border-blue-500 text-blue-200"
+            }`}
+          >
+            {/* Logic Icon Loading */}
+            {feedback.type === "loading" && (
+                <svg className="animate-spin h-5 w-5 text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            )}
+            
+            <div className="flex flex-col">
+                <span className="font-medium">{feedback.message}</span>
+                {feedback.hash && (
+                    <a 
+                        href={`https://explorer.sepolia.mantle.xyz/tx/${feedback.hash}`} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="text-xs underline opacity-80 hover:opacity-100 mt-1"
+                    >
+                        View on Explorer
+                    </a>
+                )}
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-4 items-end">
+          <div className="flex-1">
+            <label className="text-sm text-gray-400 mb-1 block">
+              Amount (USDT)
+            </label>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="p-3 rounded bg-slate-700 text-white w-full border border-slate-600 focus:border-blue-500 outline-none"
+              placeholder="0.00"
+              disabled={isPending || feedback?.type === "loading"}
+            />
+          </div>
+
+          <button
+            onClick={() => handleTransaction("deposit")}
+            disabled={!amount || isPending || feedback?.type === "loading"}
+            className={`px-6 py-3 rounded font-medium transition-colors ${
+              isPending || feedback?.type === "loading"
+                ? "bg-slate-600 cursor-not-allowed text-gray-400"
+                : "bg-green-600 hover:bg-green-500 text-white cursor-pointer"
+            }`}
+          >
+            {isPending && isApproving
+              ? "Approving..."
+              : feedback?.type === "loading"
+              ? "Processing..."
+              : "Deposit"}
+          </button>
+
+          <button
+            onClick={() => handleTransaction("withdraw")}
+            disabled={!amount || isPending || feedback?.type === "loading"}
+            className={`px-6 py-3 rounded font-medium transition-colors ${
+              isPending || feedback?.type === "loading"
+                ? "bg-slate-600 cursor-not-allowed text-gray-400"
+                : "bg-red-600 hover:bg-red-500 text-white"
+            }`}
+          >
+            {feedback?.type === "loading" ? "Processing..." : "Withdraw"}
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <MantleSepoliaBalance />
+      </div>
+
+      {/* --- SECTION 3: POSITIONS --- */}
+      <div>
+        <h2 className="text-2xl font-bold mb-4">Open Positions</h2>
+        {loadingPositions ? (
+          <p>Loading positions...</p>
+        ) : positions.length === 0 ? (
+          <p className="text-gray-500">No active positions.</p>
+        ) : (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="text-gray-400 border-b border-slate-700">
+                <th className="p-2">Country</th>
+                <th className="p-2">Side</th>
+                <th className="p-2">Size</th>
+                <th className="p-2">Entry Price</th>
+                <th className="p-2">Current Price</th>
+                <th className="p-2">PnL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {positions.map((pos) => {
+                if (!pos) return null;
+                return (
+                  <tr
+                    key={pos.id}
+                    className="border-b border-slate-800 hover:bg-slate-800"
+                  >
+                    <td className="p-2 font-bold">{pos?.countryCode}</td>
+                    <td
+                      className={`p-2 ${
+                        pos.isLong ? "text-green-400" : "text-red-400"
+                      }`}
+                    >
+                      {pos.isLong ? "LONG" : "SHORT"}
+                    </td>
+                    <td className="p-2">{Number(pos.size).toFixed(2)}</td>
+                    <td className="p-2">
+                      ${Number(pos.entryPrice).toFixed(4)}
+                    </td>
+                    <td className="p-2">
+                      ${Number(pos.currentPrice).toFixed(4)}
+                    </td>
+                    <td
+                      className={`p-2 ${
+                        Number(pos.pnl) >= 0 ? "text-green-400" : "text-red-400"
+                      }`}
+                    >
+                      {Number(pos.pnl).toFixed(4)} USDT
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         )}
       </div>
-
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/60">
-        <div className="flex justify-between items-center border-b border-slate-800 px-4 py-3">
-          <p className="text-sm font-semibold text-slate-100">Holdings</p>
-          {closedPositions.length > 0 && (
-            <button
-              onClick={handleReopenAll}
-              className="rounded-lg bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400 transition-colors hover:bg-blue-500/20"
-            >
-              Reopen All ({closedPositions.length})
-            </button>
-          )}
-        </div>
-        <div className="divide-y divide-slate-800">
-          <div className="grid grid-cols-14 gap-2 px-4 py-2 text-[11px] uppercase tracking-wide text-slate-400">
-            <div className="col-span-4">Asset</div>
-            <div className="col-span-2 text-right">Amount</div>
-            <div className="col-span-2 text-right">Price</div>
-            <div className="col-span-2 text-right">Value</div>
-            <div className="col-span-2 text-right">24h</div>
-            <div className="col-span-2 text-right">Modify</div>
-          </div>
-          {holdings.length === 0 ? (
-            <div className="px-6 py-12 text-center">
-              <p className="text-slate-400">No active holdings</p>
-              <p className="mt-1 text-sm text-slate-500">
-                All positions have been closed
-              </p>
-              {closedPositions.length > 0 && (
-                <button
-                  onClick={handleReopenAll}
-                  className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
-                >
-                  Reopen All Positions
-                </button>
-              )}
-            </div>
-          ) : (
-            holdings.map((h) => {
-              const value = h.amount * h.price;
-              const tone =
-                h.change24hPct >= 0 ? "text-emerald-400" : "text-rose-400";
-              const sign = h.change24hPct >= 0 ? "+" : "";
-              return (
-                <div
-                  key={h.symbol}
-                  className="grid grid-cols-14 items-center gap-2 px-4 py-3 text-sm"
-                >
-                  <div className="col-span-4 flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 text-[11px] font-semibold text-slate-200">
-                      {h.symbol}
-                    </div>
-                    <div>
-                      <p className="font-medium text-slate-100">{h.name}</p>
-                      <p className="text-xs text-slate-500">{h.symbol}</p>
-                    </div>
-                  </div>
-                  <div className="col-span-2 text-right tabular-nums text-slate-100">
-                    {h.amount.toLocaleString()}
-                  </div>
-                  <div className="col-span-2 text-right tabular-nums text-slate-100">
-                    {h.price ? usd(h.price) : "—"}
-                  </div>
-                  <div className="col-span-2 text-right tabular-nums text-slate-100">
-                    {h.price ? usd(value) : "—"}
-                  </div>
-                  <div className={`col-span-2 text-right tabular-nums ${tone}`}>
-                    {sign}
-                    {(h.change24hPct * 100).toFixed(2)}%
-                  </div>
-                  <div className="col-span-2 flex justify-end">
-                    <button
-                      onClick={() => setCloseModal(h)}
-                      className="rounded-md bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-
-      {closeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl">
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="text-xl font-bold text-slate-100">
-                  Close Position
-                </h3>
-                <p className="mt-1 text-sm text-slate-400">
-                  Confirm closing this position
-                </p>
-              </div>
-              <button
-                onClick={() => setCloseModal(null)}
-                disabled={isClosing}
-                className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100"
-              >
-                <p className="text-lg cursor-pointer">X</p>
-              </button>
-            </div>
-
-            <div className="mt-6 space-y-4">
-              {/* Asset Info */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-bold text-white">
-                    {closeModal.symbol.slice(0, 2)}
-                  </div>
-                  <div>
-                    <p className="font-semibold text-slate-100">
-                      {closeModal.name}
-                    </p>
-                    <p className="text-sm text-slate-400">
-                      {closeModal.symbol}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Position Details */}
-              <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-                <div className="flex justify-between">
-                  <span className="text-sm text-slate-400">Amount</span>
-                  <span className="font-medium text-slate-100">
-                    {closeModal.amount.toLocaleString()} units
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-slate-400">Current Price</span>
-                  <span className="font-medium text-slate-100">
-                    {usd(closeModal.price)}
-                  </span>
-                </div>
-                <div className="border-t border-slate-800 pt-3">
-                  <div className="flex justify-between">
-                    <span className="text-sm font-semibold text-slate-100">
-                      Estimated Proceeds
-                    </span>
-                    <span className="text-lg font-bold text-emerald-400">
-                      {usd(closeModal.amount * closeModal.price)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="mt-6 flex gap-3">
-              <button
-                onClick={() => setCloseModal(null)}
-                disabled={isClosing}
-                className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 font-medium text-slate-100 transition-colors hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleClosePosition}
-                disabled={isClosing}
-                className="flex-1 rounded-xl bg-rose-600 px-4 py-3 font-medium text-white transition-colors hover:bg-rose-700 disabled:opacity-50 cursor-pointer"
-              >
-                {isClosing ? "Closing..." : "Confirm Close"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
