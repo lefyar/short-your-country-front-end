@@ -1,55 +1,19 @@
-import { ethers } from 'ethers';
+import { parseAbi } from "viem";
 
-export const CONTRACTS = {
-  COUNTRY_REGISTRY: {
-    address: process.env.COUNTRY_REGISTRY_ADDRESS as `0x{string}`,
-  },
-  COUNTRY_TRADING: {
-    address: process.env.COUNTRY_TRADING_ADDRESS as `0x{string}`,
-  },
-  COLLATERAL_TOKEN: {
-    address: process.env.COLLATERAL_TOKEN_ADDRESS as `0x{string}`,
-  },
-  LIQUIDITY_POOL: {
-    address: process.env.LIQUIDITY_POOL_ADDRESS as `0x{string}`,
-  },
-} as const;
+export const COLLATERAL_TOKEN_ADDRESS = process.env.NEXT_PUBLIC_COLLATERAL_TOKEN_ADDRESS as `0x${string}`;
+export const COUNTRY_TRADING_ADDRESS = process.env.NEXT_PUBLIC_COUNTRY_TRADING_ADDRESS as `0x${string}`;
 
-export const CHAIN_CONFIG = {
-  chainId: parseInt(process.env.CHAIN_ID!),
-  rpcUrl: process.env.RPC_URL as string,
-  name: 'Mantle Sepolia Testnet',
-  nativeCurrency: {
-    name: 'MNT',
-    symbol: 'MNT',
-    decimals: 18,
-  },
-  blockExplorer: 'https://sepolia.mantlescan.xyz',
-};
+export const countryTradingAbi = parseAbi([
+  "function deposit(uint256 amount) external",
+  "function withdraw(uint256 amount) external",
+  "function getCollateralBalance(address user) external view returns (uint256)",
+  "function getUserPositions(address user) external view returns (uint256[])",
+  "function getPosition(address user, uint256 positionId) external view returns ((bytes32 countryCode, bool isLong, uint256 collateralAmount, uint256 positionSize, uint256 entryPrice, uint256 entryTimestamp, uint256 lastFundingTimestamp))",
+  "function getPositionPnL(address user, uint256 positionId) external view returns (int256 pnl, uint256 currentPrice)",
+]);
 
-// Country mapping
-export const COUNTRIES = [
-  { 
-    id: 'US', 
-    name: 'United States Index', 
-    symbol: 'USA',
-    priceFeed: process.env.US_PRICE_FEED 
-  },
-  { 
-    id: 'ID', 
-    name: 'Indonesia Index', 
-    symbol: 'IDN',
-    priceFeed: process.env.ID_PRICE_FEED 
-  },
-  { 
-    id: 'SG', 
-    name: 'Singapore Index', 
-    symbol: 'SGP',
-    priceFeed: process.env.SG_PRICE_FEED 
-  },
-] as const;
-
-// Helper: convert country ID to bytes32
-export const getCountryCode = (countryId: string): string => {
-  return ethers.keccak256(ethers.toUtf8Bytes(countryId));
-};
+export const erc20Abi = parseAbi([
+  "function balanceOf(address account) external view returns (uint256)",
+  "function allowance(address owner, address spender) external view returns (uint256)",
+  "function approve(address spender, uint256 amount) external returns (bool)",
+]);

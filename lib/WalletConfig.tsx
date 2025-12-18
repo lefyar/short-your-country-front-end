@@ -47,19 +47,3 @@ export function Web3Provider({ children }: Web3ProviderProps) {
     </WagmiProvider>
   );
 }
-
-// Simple wallet coin config used by the Portfolio page to compute totals.
-// Adjust symbols and amounts to reflect the user's holdings.
-export type WalletCoin = {
-  symbol: string; // e.g., "IDN"
-  name: string;   // display name
-  amount: number; // units held in wallet
-};
-
-// NOTE: This is a placeholder configuration. Replace with real balances or
-// hydrate from your on-chain/account source as needed.
-export const walletCoins: WalletCoin[] = [
-  { symbol: "IDN", name: "Indonesian Shyntetic Nation Index", amount: 2.4 },
-  { symbol: "USA", name: "US Shyntetic Nation Index", amount: 0.18 },
-  { symbol: "JPN", name: "JPN Shyntetic Nation Index", amount: 35 },
-];
