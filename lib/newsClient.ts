@@ -41,10 +41,14 @@ export async function fetchDerivativeNews(): Promise<DerivativeNews[]> {
         );
     }
 
+    console.log("Fetching news_card from", baseUrl);
+
     const res = await fetch(`${baseUrl}/news_card`, {
         // Next.js App Router: caching / revalidate
         next: { revalidate: 60 }, // re-fetch tiap 60 detik (sesuaikan)
     });
+
+    console.log("response Api: ", res);
 
     if (!res.ok) {
         throw new Error(`Failed to fetch news_card: ${res.statusText}`);

@@ -20,8 +20,8 @@ type SwipeAction = 'long' | 'short' | 'skip';
 
 interface SwipeCardProps {
   newsList: DerivativeNews[];
-  onLong?: (news: DerivativeNews) => void;
-  onShort?: (news: DerivativeNews) => void;
+  onLong?: (news: DerivativeNews, tradeAmount: number) => void;
+  onShort?: (news: DerivativeNews, tradeAmount: number) => void;
   onSkip?: (news: DerivativeNews) => void;
 }
 
@@ -72,6 +72,9 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({
   const [filterCountry, setFilterCountry] = useState<string | null>(null);
   // action terakhir (untuk efek badge "LONG / SHORT / SKIP selesai")
   const [lastAction, setLastAction] = useState<SwipeAction | null>(null);
+  const tradeAmounts = [1, 5, 10] as const;
+  const [tradeIndex, setTradeIndex] = useState(1);
+  const tradeAmount = tradeAmounts[tradeIndex];
 
   // referensi ke elemen DOM kartu paling atas
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -193,8 +196,13 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({
         borderWidth: 2,
         onComplete: () => {
           // panggil callback dari parent jika ada
-          if (action === 'long') onLong?.(current);
-          if (action === 'short') onShort?.(current);
+          if (action === 'long') {
+            onLong?.(current, tradeAmount);
+          }
+
+          if (action === 'short') {
+            onShort?.(current, tradeAmount);
+          }
           if (action === 'skip') onSkip?.(current);
 
           setLastAction(null);
@@ -210,7 +218,7 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({
         });
       }
     },
-    [activeIndex, displayedNews, onLong, onShort, onSkip]
+    [activeIndex, displayedNews, onLong, onShort, onSkip, tradeAmount]
   );
 
   // setup GSAP Draggable untuk kartu paling atas
@@ -497,6 +505,28 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({
                   data-glow-overlay
                   className="pointer-events-none absolute inset-0 opacity-0 mix-blend-screen z-10"
                 />
+
+                {/* trade amount selector (single, clickable) */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation(); // prevent swipe
+                    setTradeIndex((prev) => (prev + 1) % tradeAmounts.length);
+                  }}
+                  className={classNames(
+                    'absolute top-4 right-4 z-40',
+                    'w-12 h-10',
+                    'rounded-xl',
+                    'bg-slate-900/80 backdrop-blur',
+                    'border border-slate-700/80',
+                    'text-emerald-400 font-semibold text-lg',
+                    'shadow-lg',
+                    'hover:bg-slate-800',
+                    'active:scale-95',
+                    'transition'
+                  )}
+                >
+                  ${tradeAmount}
+                </button>
 
                 {/* badge LONG / SHORT saat swipe */}
                 <div className="pointer-events-none absolute inset-0">
