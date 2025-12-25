@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className={`${inter.className} bg-slate-950 text-slate-100`}>
         <Web3Provider>
           <Navbar />
-          <main className="mx-auto max-w-7xl px-4 pb-10 pt-6">{children}</main>
+          <main className="mx-auto max-w-5xl px-4 pb-10 pt-6">{children}</main>
           <BottomNavbar />
         </Web3Provider>
       </body>
