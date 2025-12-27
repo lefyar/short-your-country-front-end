@@ -202,7 +202,7 @@ export default function PortfolioPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white font-sans rounded-lg">
+    <div className="min-h-screen bg-black text-white font-sans rounded-lg my-4">
       <div className="mx-auto pt-8 px-5">
         
         {/* Header */}
